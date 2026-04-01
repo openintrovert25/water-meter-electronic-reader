@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "942480474235",
+    "firebase_url": "https://water-meter-reader-65aff-default-rtdb.firebaseio.com",
+    "project_id": "water-meter-reader-65aff",
+    "storage_bucket": "water-meter-reader-65aff.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:942480474235:android:601e5a0a9039cc9b2de2de",
+        "android_client_info": {
+          "package_name": "com.example.water_meter_electronic_reader"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD1WuK2GXZyd9sD6-dOmId6SW7m8wura5o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

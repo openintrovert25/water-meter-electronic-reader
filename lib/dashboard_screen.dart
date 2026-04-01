@@ -1,11 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:fl_chart/fl_chart.dart';
-import 'login_screen.dart';
-import 'alerts_screen.dart';
-import 'settings_screen.dart';
-import 'history_screen.dart';
-
+import 'iot_service.dart';
+import 'water_reading.dart';
+import 'reading_card.dart';
+import 'flow_gauge.dart';
+import 'cost_summary_card.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -15,298 +14,331 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // Index to track which bottom navigation tab is selected
-  int _selectedIndex = 0;
-  String _selectedTimeframe = 'Daily';
-  // Function to handle tab switching
-  void _onItemTapped(int index) {
-    if (index == 1) { // History Icon
-      Navigator.push(context, MaterialPageRoute(builder: (context) => const HistoryScreen()));
-    } else if (index == 2) { // Alerts Icon
-      Navigator.push(context, MaterialPageRoute(builder: (context) => const AlertsScreen()));
-    } else if (index == 3) { // Settings Icon
-      Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
-    } else {
-      setState(() {
-        _selectedIndex = index;
-      });
-    }
-  }
-  List<FlSpot> _getChartData() {
-    switch (_selectedTimeframe) {
-      case 'Weekly':
-        return const [FlSpot(0, 2000), FlSpot(1, 1500), FlSpot(2, 3000), FlSpot(3, 2200), FlSpot(4, 1800)];
-      case 'Monthly':
-        return const [FlSpot(0, 1000), FlSpot(1, 2800), FlSpot(2, 1200), FlSpot(3, 3900), FlSpot(4, 2500)];
-      case 'Daily':
-      default:
-        return const [FlSpot(0, 1000), FlSpot(1, 1200), FlSpot(2, 2000), FlSpot(3, 2500), FlSpot(4, 3500), FlSpot(5, 4000)];
-    }
+  final _service = IotService();
+  StreamSubscription<WaterReading>? _sub;
+  WaterReading? _latestReading;
+  bool _isConnected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
   }
 
+  Future<void> _initialize() async {
+    await _service.initialize();
+    setState(() => _isConnected = _service.isConnected);
 
-  Future<void> _logout(BuildContext context) async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isLoggedIn', false);
-    if (!mounted) return;
-    Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (context) => LoginScreen()));
+    _sub = _service.readingStream.listen((reading) {
+      if (mounted) setState(() => _latestReading = reading);
+    });
+
+    _service.connectionStream.listen((connected) {
+      if (mounted) setState(() => _isConnected = connected);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF15171E), // Dark background from design
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: const Icon(Icons.arrow_back, color: Colors.white),
-        actions: [
-        IconButton(
-          icon: const Icon(Icons.settings, color: Colors.white),
-          onPressed: () {
-            // Navigate to the Settings Screen
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SettingsScreen()),
-            );
-          },
-        ),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar.large(
+            expandedHeight: 140,
+            backgroundColor: colorScheme.primaryContainer,
+            flexibleSpace: FlexibleSpaceBar(
+              title: const Text('Water Meter Reader'),
+              background: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      colorScheme.primaryContainer,
+                      colorScheme.primary.withOpacity(0.3),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: _ConnectionChip(isConnected: _isConnected),
+              ),
+            ],
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.all(16),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                // --- Live flow gauge ---
+                FlowGauge(
+                  flowRate: _latestReading?.flowRate ?? 0,
+                ),
+                const SizedBox(height: 16),
+
+                // --- ESP32-CAM meter image (shown when imageUrl is available) ---
+                if (_latestReading?.imageUrl != null &&
+                    _latestReading!.imageUrl!.isNotEmpty)
+                  _MeterImageCard(imageUrl: _latestReading!.imageUrl!),
+                if (_latestReading?.imageUrl != null &&
+                    _latestReading!.imageUrl!.isNotEmpty)
+                  const SizedBox(height: 12),
+
+                // --- Current reading ---
+                ReadingCard(
+                  title: 'Current Reading',
+                  icon: Icons.speed,
+                  value: _service.totalLiters.toStringAsFixed(2),
+                  unit: 'Liters',
+                  subtitle: 'Total cumulative usage (TCRT5000 optical pulses)',
+                  color: colorScheme.primary,
+                ),
+                const SizedBox(height: 12),
+
+                // --- Cost summary ---
+                CostSummaryCard(
+                  totalLiters: _service.totalLiters,
+                  dailyLiters: _getDailyUsage(),
+                  monthlyLiters: _getMonthlyUsage(),
+                ),
+                const SizedBox(height: 12),
+
+                // --- Quick stats row ---
+                Row(
+                  children: [
+                    Expanded(
+                      child: ReadingCard(
+                        title: "Today's Usage",
+                        icon: Icons.today,
+                        value: _getDailyUsage().toStringAsFixed(1),
+                        unit: 'L',
+                        color: colorScheme.secondary,
+                        compact: true,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ReadingCard(
+                        title: 'Flow Rate',
+                        icon: Icons.water_outlined,
+                        value: (_latestReading?.flowRate ?? 0)
+                            .toStringAsFixed(2),
+                        unit: 'L/min',
+                        color: colorScheme.tertiary,
+                        compact: true,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // --- IoT device info ---
+                _DeviceInfoCard(isConnected: _isConnected),
+                const SizedBox(height: 80),
+              ]),
+            ),
+          ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+    );
+  }
+
+  double _getDailyUsage() {
+    final readings = _service.getReadingsForPeriod(const Duration(hours: 24));
+    return WaterReading.periodConsumption(readings);
+  }
+
+  double _getMonthlyUsage() {
+    final readings = _service.getReadingsForPeriod(const Duration(days: 30));
+    return WaterReading.periodConsumption(readings);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Meter Image Card — shows the latest photo taken by the ESP32-CAM
+// ---------------------------------------------------------------------------
+class _MeterImageCard extends StatelessWidget {
+  final String imageUrl;
+  const _MeterImageCard({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header with Icon and Title
             Row(
               children: [
-                // Icon placeholder for the water meter image
-                const Icon(Icons.water_drop, color: Colors.blueAccent, size: 40),
-                const SizedBox(width: 12),
-                const Text(
-                  'Water Usage Monitoring',
-                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                Icon(Icons.camera_alt_outlined, color: colorScheme.primary, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'Latest Meter Photo (ESP32-CAM)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.onSurface,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-
-            // Top Info Cards (Reading and Cost)
-            Row(
-              children: [
-                Expanded(child: _buildInfoCard('Current Reading', '01234.57', 'm³', 'Today so far: 34.5 liters')),
-                const SizedBox(width: 12),
-                Expanded(child: _buildInfoCard('Cost (PHP)', '₱975.50', '', 'Estimated Monthly Bill')),
-              ],
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.network(
+                imageUrl,
+                width: double.infinity,
+                height: 180,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return SizedBox(
+                    height: 180,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        value: progress.expectedTotalBytes != null
+                            ? progress.cumulativeBytesLoaded /
+                                progress.expectedTotalBytes!
+                            : null,
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 100,
+                  alignment: Alignment.center,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.broken_image_outlined,
+                          color: colorScheme.onSurfaceVariant),
+                      const SizedBox(height: 4),
+                      Text('Image unavailable',
+                          style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
             ),
-            const SizedBox(height: 24),
-
-            // Usage Toggle (Daily/Weekly/Monthly)
-            _buildToggleBar(),
-            const SizedBox(height: 16),
-
-            // Usage Graph
-            const Text('Daily Usage', style: TextStyle(color: Colors.white, fontSize: 16)),
-            const SizedBox(height: 8),
-            Container(
-              height: 200,
-              padding: const EdgeInsets.only(top: 20, right: 20),
-              decoration: BoxDecoration(color: const Color(0xFF22252E), borderRadius: BorderRadius.circular(16)),
-              child: _buildMainChart(),
-            ),
-            const SizedBox(height: 24),
-
-            // Alerts Section
-            const Text('Alerts >>', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            _buildAlertCard(context, 'Possible Leak Detected!', '> 60 liters used in the last hour'),
-            const SizedBox(height: 12),
-            _buildAlertCard(context, 'High Usage Alert', 'Usage exceeded 500 L/hr'),
           ],
         ),
-      ),
-
-
-      // Bottom Navigation Bar
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: const Color(0xFF15171E),
-        selectedItemColor: Colors.blueAccent,
-        unselectedItemColor: Colors.grey,
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Overview'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'History'),
-          BottomNavigationBarItem(icon: Icon(Icons.notifications), label: 'Alerts'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-        ],
-      ),
-    );
-  }
-
-  // Helper for info cards
-  Widget _buildInfoCard(String title, String value, String unit, String sub) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: const Color(0xFF22252E), borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-          const SizedBox(height: 4),
-          Text('$value $unit', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Text(sub, style: const TextStyle(color: Colors.grey, fontSize: 10)),
-        ],
-      ),
-    );
-  }
-
-  // Helper for the Daily/Weekly/Monthly toggle
-  Widget _buildToggleBar() {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(color: const Color(0xFF22252E), borderRadius: BorderRadius.circular(25)),
-      child: Row(
-        children: ['Daily', 'Weekly', 'Monthly'].map((timeframe) {
-          bool isSelected = _selectedTimeframe == timeframe;
-          return Expanded(
-            child: GestureDetector(
-              onTap: () {
-                setState(() {
-                  _selectedTimeframe = timeframe;
-                });
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: isSelected ? Colors.blueAccent.withOpacity(0.3) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Center(
-                  child: Text(
-                    timeframe == 'Daily' ? 'Daily Usage' : timeframe,
-                    style: TextStyle(
-                      color: isSelected ? Colors.blueAccent : Colors.grey,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  // The Graph using fl_chart
-  Widget _buildMainChart() {
-    return LineChart(
-      LineChartData(
-        gridData: const FlGridData(show: true, drawVerticalLine: false),
-        titlesData: FlTitlesData(
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) => Text(
-                value.toInt().toString(),
-                style: const TextStyle(color: Colors.white, fontSize: 10), // Usage numbers in white
-              ),
-              reservedSize: 35,
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) {
-                // --- DYNAMIC DATE LOGIC ---
-                String text = '';
-                int index = value.toInt();
-
-                if (_selectedTimeframe == 'Daily') {
-                  // Show dates like Apr 1, Apr 2
-                  List<String> days = ['Apr 1', 'Apr 2', 'Apr 3', 'Apr 4', 'Apr 5', 'Apr 7'];
-                  if (index >= 0 && index < days.length) text = days[index];
-                } else if (_selectedTimeframe == 'Weekly') {
-                  // Show days of the week
-                  List<String> weeks = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-                  if (index >= 0 && index < weeks.length) text = weeks[index];
-                } else if (_selectedTimeframe == 'Monthly') {
-                  // Show month names
-                  List<String> months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-                  if (index >= 0 && index < months.length) text = months[index];
-                }
-
-                return SideTitleWidget(
-                  axisSide: meta.axisSide,
-                  space: 8,
-                  child: Text(
-                    text,
-                    style: const TextStyle(color: Colors.white, fontSize: 10), // Labels in white
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        lineBarsData: [
-          LineChartBarData(
-            spots: _getChartData(), // Calls our function to get coordinates
-            isCurved: true,
-            color: Colors.blueAccent,
-            barWidth: 4,
-            belowBarData: BarAreaData(show: true, color: Colors.blueAccent.withOpacity(0.1)),
-            dotData: const FlDotData(show: true),
-          ),
-        ],
       ),
     );
   }
 }
 
-  // Helper for alert cards
-Widget _buildAlertCard(BuildContext context, String title, String details) {
-  return Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-        color: const Color(0xFF22252E), // Card background
-        borderRadius: BorderRadius.circular(16)
-    ),
-    child: Row(
-      children: [
-        const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 32),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              Text(details, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-            ],
-          ),
+// ---------------------------------------------------------------------------
+// Connection chip
+// ---------------------------------------------------------------------------
+class _ConnectionChip extends StatelessWidget {
+  final bool isConnected;
+  const _ConnectionChip({required this.isConnected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      avatar: Icon(
+        isConnected ? Icons.wifi : Icons.wifi_off,
+        size: 16,
+        color: isConnected ? Colors.green : Colors.red,
+      ),
+      label: Text(
+        isConnected ? 'ESP32-CAM Online' : 'Offline',
+        style: TextStyle(
+          color: isConnected ? Colors.green : Colors.red,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
         ),
-        ElevatedButton(
-          onPressed: () {
-            // Now 'context' is defined and usable!
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const AlertsScreen()),
-            );
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF0D47A1), // Blue button
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          ),
-          child: const Text('VIEW', style: TextStyle(color: Colors.white, fontSize: 12)),
-        )
-      ],
-    ),
-  );
+      ),
+      backgroundColor: isConnected
+          ? Colors.green.withOpacity(0.1)
+          : Colors.red.withOpacity(0.1),
+      side: BorderSide.none,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Device info card
+// ---------------------------------------------------------------------------
+class _DeviceInfoCard extends StatelessWidget {
+  final bool isConnected;
+  const _DeviceInfoCard({required this.isConnected});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.developer_board, color: colorScheme.primary),
+                const SizedBox(width: 8),
+                const Text(
+                  'IoT Device',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _InfoRow('Microcontroller', 'ESP32-CAM (AI-Thinker)'),
+            _InfoRow('Sensor', 'TCRT5000 IR Optical'),
+            _InfoRow('Camera', 'OV2640 (2MP)'),
+            _InfoRow('Protocol', 'HTTP POST → Firebase'),
+            _InfoRow('Status', isConnected ? 'Connected' : 'Disconnected'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InfoRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
 }
