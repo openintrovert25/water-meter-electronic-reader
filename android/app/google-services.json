@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "121888539189",
+    "firebase_url": "https://water-meter-reader-group6-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "water-meter-reader-group6",
+    "storage_bucket": "water-meter-reader-group6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:121888539189:android:4a8a5e8bc9f7e290f2a77c",
+        "android_client_info": {
+          "package_name": "com.example.water_meter_electronic_reader"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSfByOobsDQ_MfJFND1y6GG_ZkLiGfDyM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
