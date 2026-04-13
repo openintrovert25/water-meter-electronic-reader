@@ -3,6 +3,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'reading_card.dart';
 import 'flow_gauge.dart';
 import 'cost_summary_card.dart';
+import 'alert_service.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -23,9 +24,7 @@ class DashboardScreen extends StatelessWidget {
               meterSnapshot.hasData && meterSnapshot.data!.snapshot.value != null;
 
           final meterData = meterHasData
-              ? Map<String, dynamic>.from(
-                  meterSnapshot.data!.snapshot.value as Map,
-                )
+              ? Map<String, dynamic>.from(meterSnapshot.data!.snapshot.value as Map)
               : <String, dynamic>{};
 
           final pulsesPerSecond =
@@ -33,12 +32,19 @@ class DashboardScreen extends StatelessWidget {
           final flowRate = ((meterData['flowRate'] ?? 0) as num).toDouble();
           final totalLiters = ((meterData['totalLiters'] ?? 0) as num).toDouble();
 
+          if (meterSnapshot.connectionState == ConnectionState.active) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              AlertService.instance.checkStatus(
+                isConnected: meterHasData,
+                flowRate: flowRate,
+              );
+            });
+          }
+
           return StreamBuilder<DatabaseEvent>(
             stream: historyRef.onValue,
             builder: (context, historySnapshot) {
-              final historyPoints =
-                  _parseHistory(historySnapshot.data?.snapshot.value);
-
+              final historyPoints = _parseHistory(historySnapshot.data?.snapshot.value);
               final todayLiters = _usageForToday(historyPoints);
               final monthlyLiters = _usageForCurrentMonth(historyPoints);
 
@@ -73,11 +79,8 @@ class DashboardScreen extends StatelessWidget {
                     padding: const EdgeInsets.all(16),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
-                        FlowGauge(
-                          flowRate: flowRate,
-                        ),
+                        FlowGauge(flowRate: flowRate),
                         const SizedBox(height: 16),
-
                         ReadingCard(
                           title: 'Current Reading',
                           icon: Icons.speed,
@@ -87,14 +90,12 @@ class DashboardScreen extends StatelessWidget {
                           color: colorScheme.primary,
                         ),
                         const SizedBox(height: 12),
-
                         CostSummaryCard(
                           totalLiters: totalLiters,
                           dailyLiters: todayLiters,
                           monthlyLiters: monthlyLiters,
                         ),
                         const SizedBox(height: 12),
-
                         Row(
                           children: [
                             Expanded(
@@ -121,7 +122,6 @@ class DashboardScreen extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 12),
-
                         _DeviceInfoCard(
                           isConnected: meterHasData,
                           totalLiters: totalLiters,
@@ -129,6 +129,7 @@ class DashboardScreen extends StatelessWidget {
                           estimatedCost: totalLiters * phpPerLiter,
                           todayLiters: todayLiters,
                           monthlyLiters: monthlyLiters,
+                          pulsesPerSecond: pulsesPerSecond,
                         ),
                         const SizedBox(height: 80),
                       ]),
@@ -151,7 +152,6 @@ class DashboardScreen extends StatelessWidget {
 
     for (final value in map.values) {
       final item = Map<String, dynamic>.from(value as Map);
-
       final rawTimestamp = item['timestamp'];
       final rawTotalLiters = item['totalLiters'];
 
@@ -242,6 +242,7 @@ class _HistoryPoint {
 
 class _ConnectionChip extends StatelessWidget {
   final bool isConnected;
+
   const _ConnectionChip({required this.isConnected});
 
   @override
@@ -275,6 +276,7 @@ class _DeviceInfoCard extends StatelessWidget {
   final double estimatedCost;
   final double todayLiters;
   final double monthlyLiters;
+  final double pulsesPerSecond;
 
   const _DeviceInfoCard({
     required this.isConnected,
@@ -283,11 +285,13 @@ class _DeviceInfoCard extends StatelessWidget {
     required this.estimatedCost,
     required this.todayLiters,
     required this.monthlyLiters,
+    required this.pulsesPerSecond,
   });
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -314,6 +318,7 @@ class _DeviceInfoCard extends StatelessWidget {
             _InfoRow('Sensor', 'TCRT5000 IR Optical'),
             _InfoRow('Protocol', 'WiFi HTTP → Firebase'),
             _InfoRow('Status', isConnected ? 'Connected' : 'Disconnected'),
+            _InfoRow('Pulses / Sec', pulsesPerSecond.toStringAsFixed(2)),
             _InfoRow('Flow Rate', '${flowRate.toStringAsFixed(2)} L/s'),
             _InfoRow('Today', '${todayLiters.toStringAsFixed(2)} L'),
             _InfoRow('This Month', '${monthlyLiters.toStringAsFixed(2)} L'),
@@ -329,6 +334,7 @@ class _DeviceInfoCard extends StatelessWidget {
 class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
+
   const _InfoRow(this.label, this.value);
 
   @override
@@ -344,7 +350,10 @@ class _InfoRow extends StatelessWidget {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
         ],
       ),
     );

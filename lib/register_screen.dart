@@ -49,22 +49,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
 
     if (!mounted) return;
-    setState(() => _isLoading = false);
 
     if (error != null) {
-      setState(() => _errorMessage = error);
-    } else {
-      // Auto-login after registration
-      await _auth.login(
-        username: _usernameController.text.trim(),
-        password: _passwordController.text,
-      );
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const MainNavigation()),
-        (_) => false,
-      );
+      setState(() {
+        _isLoading = false;
+        _errorMessage = error;
+      });
+      return;
     }
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const MainNavigation()),
+      (_) => false,
+    );
   }
 
   @override
@@ -98,7 +99,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 28),
 
-              _SectionLabel('Personal Info'),
+              const _SectionLabel('Personal Info'),
               const SizedBox(height: 10),
 
               TextFormField(
@@ -125,14 +126,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
                 validator: (v) {
-                  if (v == null || v.isEmpty) return null; // optional
+                  if (v == null || v.isEmpty) return null;
                   final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
                   return emailRegex.hasMatch(v) ? null : 'Enter a valid email';
                 },
               ),
-
               const SizedBox(height: 24),
-              _SectionLabel('Account Credentials'),
+
+              const _SectionLabel('Account Credentials'),
               const SizedBox(height: 10),
 
               TextFormField(
@@ -141,7 +142,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   labelText: 'Username',
                   prefixIcon: Icon(Icons.person_outline),
                   border: OutlineInputBorder(),
-                  helperText: 'Used to log in. Cannot be changed later.',
+                  helperText: 'Used to log in.\nCannot be changed later.',
                 ),
                 autocorrect: false,
                 textInputAction: TextInputAction.next,
@@ -162,11 +163,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   border: const OutlineInputBorder(),
                   helperText: 'At least 6 characters',
                   suffixIcon: IconButton(
-                    icon: Icon(_obscurePassword
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined),
-                    onPressed: () =>
-                        setState(() => _obscurePassword = !_obscurePassword),
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscurePassword = !_obscurePassword;
+                      });
+                    },
                   ),
                 ),
                 textInputAction: TextInputAction.next,
@@ -186,11 +192,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   prefixIcon: const Icon(Icons.lock_outline),
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
-                    icon: Icon(_obscureConfirm
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined),
-                    onPressed: () =>
-                        setState(() => _obscureConfirm = !_obscureConfirm),
+                    icon: Icon(
+                      _obscureConfirm
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscureConfirm = !_obscureConfirm;
+                      });
+                    },
                   ),
                 ),
                 textInputAction: TextInputAction.done,
@@ -203,7 +214,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 },
               ),
 
-              // Error message
               if (_errorMessage != null) ...[
                 const SizedBox(height: 16),
                 Container(
@@ -215,12 +225,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.error_outline,
-                          color: colorScheme.error, size: 18),
+                      Icon(Icons.error_outline, color: colorScheme.error, size: 18),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(_errorMessage!,
-                            style: TextStyle(color: colorScheme.error)),
+                        child: Text(
+                          _errorMessage!,
+                          style: TextStyle(color: colorScheme.error),
+                        ),
                       ),
                     ],
                   ),
@@ -239,10 +250,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           width: 22,
                           height: 22,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
-                      : const Text('Create Account',
-                          style: TextStyle(fontSize: 16)),
+                      : const Text(
+                          'Create Account',
+                          style: TextStyle(fontSize: 16),
+                        ),
                 ),
               ),
 
@@ -254,6 +269,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: const Text('Already have an account? Sign in'),
                 ),
               ),
+
               const SizedBox(height: 20),
             ],
           ),
